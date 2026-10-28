@@ -19,19 +19,49 @@ services:
       retries: 12
       start_period: 20s
 
-  # Servicio efimero: descarga el modelo una sola vez y termina.
-  # Saca los ~4.7 GB del arranque de Spring, que es lo que dejaba el
+  # Servicio efimero: descarga el modelo conversacional una sola vez y termina.
+  # Saca la descarga del arranque de Spring, que es lo que dejaba el
   # puerto 8080 publicado pero sin nadie escuchando (ERR_CONNECTION_RESET).
   ollama-pull:
     image: "ollama/ollama:latest"
     container_name: pruebachat_ollama_pull
     environment:
       - OLLAMA_HOST=http://ollama:11434
-    command: ["pull", "llama3"]
+    command: ["pull", "gemma3:4b"]
     restart: "no"
     depends_on:
       ollama:
         condition: service_healthy
+
+  # Modelo especializado en embeddings. El modelo de chat genera texto;
+  # este transforma preguntas y fragmentos en vectores de 768 dimensiones.
+  ollama-pull-embed:
+    image: "ollama/ollama:latest"
+    container_name: pruebachat_ollama_pull_embed
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    command: ["pull", "nomic-embed-text"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  pgvector:
+    image: "pgvector/pgvector:pg17"
+    container_name: pruebachat_pgvector
+    environment:
+      - POSTGRES_DB=ragdb
+      - POSTGRES_USER=rag
+      - POSTGRES_PASSWORD=rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d ragdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   backend:
     build: ../backend
@@ -40,11 +70,16 @@ services:
       - "8080:8080"
     environment:
       - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://pgvector:5432/ragdb
     depends_on:
       ollama:
         condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
+      ollama-pull-embed:
+        condition: service_completed_successfully
+      pgvector:
+        condition: service_healthy
 
   frontend:
     build: ../frontend
@@ -56,4 +91,6 @@ services:
 
 volumes:
   ollama_data:
+    driver: local
+  pgvector_data:
     driver: local

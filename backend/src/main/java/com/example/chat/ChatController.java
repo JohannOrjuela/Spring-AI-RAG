@@ -30,6 +30,15 @@ public class ChatController {
 
     @PostMapping("/chat")
     public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest req, BindingResult bindingResult) {
+        return respond(req, bindingResult, false);
+    }
+
+    @PostMapping("/chat/rag")
+    public ResponseEntity<ChatResponse> ragChat(@Valid @RequestBody ChatRequest req, BindingResult bindingResult) {
+        return respond(req, bindingResult, true);
+    }
+
+    private ResponseEntity<ChatResponse> respond(ChatRequest req, BindingResult bindingResult, boolean useRag) {
         if (bindingResult.hasErrors()) {
             String err = bindingResult.getAllErrors().toString();
             log.warn("Validation failed for chat request: {}", err);
@@ -37,15 +46,19 @@ public class ChatController {
             return ResponseEntity.badRequest().body(bad);
         }
 
-        log.info("Received chat request sessionId={} question={}", req.getSessionId(), req.getQuestion());
+        String mode = useRag ? "rag" : "sin-rag";
+        log.info("Received chat request mode={} sessionId={} question={}", mode, req.getSessionId(), req.getQuestion());
         long start = Instant.now().toEpochMilli();
-        String answer = modelService.generateResponse(req.getQuestion(), req.getSessionId());
+        String answer = useRag
+                ? modelService.generateRagResponse(req.getQuestion(), req.getSessionId())
+                : modelService.generateResponse(req.getQuestion(), req.getSessionId());
         long elapsed = Instant.now().toEpochMilli() - start;
 
         String status = (answer == null || answer.isBlank()) ? "error" : "ok";
         ChatResponse resp = new ChatResponse(UUID.randomUUID().toString(), answer == null ? "" : answer, elapsed, status);
 
-        log.info("Chat response for sessionId={} elapsedMs={} status={} response={}", req.getSessionId(), elapsed, status, resp);
+        log.info("Chat response mode={} sessionId={} elapsedMs={} status={}",
+                mode, req.getSessionId(), elapsed, status);
         return status.equals("ok") ? ResponseEntity.ok(resp) : ResponseEntity.status(502).body(resp);
     }
 }

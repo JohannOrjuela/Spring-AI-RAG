@@ -6,4 +6,9 @@ public interface ModelService {
      * Implementations should handle communication with Spring AI / model client.
      */
     String generateResponse(String question, String sessionId);
+
+    /**
+     * Generate a response grounded in the documents stored in PGVector.
+     */
+    String generateRagResponse(String question, String sessionId);
 }

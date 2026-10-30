@@ -1,165 +1,104 @@
-# PruebaChat RAG
+# PruebaChat — Taller de chat con documentos usando RAG
 
-Chat local construido con Spring Boot 4.1, Spring AI 2.0, Ollama y PGVector. La interfaz permite indexar documentos y comparar la misma pregunta con recuperación RAG o sin ella.
+> **Entrega — Universidad El Bosque · Aplicaciones basadas en grandes modelos de lenguaje**  
+> Documento de referencia: *Manual demostrativo de préstamo de equipos – Biblioteca Aurora* (6 páginas, ficticio).
 
-## Servicios y modelos
+## 1. Integrantes y documento seleccionado
 
-- Chat: `gemma3:4b`.
-- Embeddings: `nomic-embed-text` (768 dimensiones).
-- Base vectorial: PostgreSQL 17 con PGVector.
-- Frontend: HTML, CSS y JavaScript servido en el puerto 4200.
+**Integrantes:** [COMPLETAR CON LOS NOMBRES REALES DEL GRUPO].
 
-El modelo de chat y el modelo de embeddings no tienen que ser el mismo. Gemma genera respuestas; `nomic-embed-text` convierte preguntas y fragmentos en vectores comparables.
+**Fuente:** documento original ficticio de demostración, incluido en `documentos/Manual_demostrativo_Biblioteca_Aurora.pdf`; no corresponde a una biblioteca real. Tiene 6 páginas con texto seleccionable. Se eligió por sus normas concretas y poco conocidas por un LLM (horarios, límites, renovaciones, fallas, excepciones y reservas); así se puede evaluar si la respuesta proviene del contexto recuperado.
 
-## Ejecución
+## 2. Arquitectura y flujo
 
-Requiere Docker Desktop. Desde la raíz del proyecto:
+**Ingesta:** el formulario de `frontend/src/index.html` envía el archivo a `POST /api/v1/documents`. `TikaDocumentReader` extrae el contenido. `TokenTextSplitter` lo divide mediante `withChunkSize`, se registra `fuente` en los metadatos, `nomic-embed-text` produce embeddings de 768 dimensiones y `VectorStore` los guarda en PostgreSQL 17 con PGVector.
 
-```bash
+**Consulta con RAG:** `POST /api/v1/chat/rag` usa `QuestionAnswerAdvisor`, que busca fragmentos por similitud con `topK` y `similarityThreshold`. Se agregan al prompt español, y `gemma3:4b` genera la respuesta. La implementación obtiene `RETRIEVED_DOCUMENTS` para exponer fuente y extracto en la interfaz. **Sin RAG:** `POST /api/v1/chat` consulta al modelo sin recuperar el PDF.
+
+**Diferencia con el modelo sugerido en la guía:** se usa `gemma3:4b`, no `llama3`. No se realizó una comparación de modelos.
+
+## 3. Ejecución
+
+Con Docker Desktop en ejecución, abrir PowerShell desde `Spring-AI-RAG-main`:
+
+```powershell
 docker compose -f docker/docker-compose.yml up -d --build
-```
-
-La primera ejecución descarga `gemma3:4b` y `nomic-embed-text`, por lo que puede tardar varios minutos. Después abre:
-
-- Frontend: http://localhost:4200
-- Backend: http://localhost:8080
-- Ollama: http://localhost:11434
-
-Para revisar el estado:
-
-```bash
 docker compose -f docker/docker-compose.yml ps
-docker logs -f pruebachat_backend
-docker exec -it pruebachat_ollama ollama list
+docker exec pruebachat_backend printenv RAG_CHUNK_SIZE RAG_TOP_K RAG_SIMILARITY_THRESHOLD
 ```
 
-## Uso
+Abrir `http://localhost:4200`, subir una única vez el PDF de `documentos/`, y probar en «Chat con RAG» y «Chat sin RAG». API en puerto `8080`; Ollama en `11434`; PostgreSQL en `5432`.
 
-1. En **Subir documentos**, selecciona un PDF, DOCX, PPTX, TXT, MD o HTML con texto seleccionable.
-2. Espera la confirmación con el número de fragmentos indexados.
-3. En **Chat con RAG**, pregunta sobre el contenido del documento.
-4. Repite la pregunta en **Chat sin RAG** para obtener la línea base y comparar.
+**Configuración final seleccionada:** `RAG_CHUNK_SIZE=500`, `RAG_TOP_K=2`, `RAG_SIMILARITY_THRESHOLD=0.5` (valores confirmados en terminal). Para confirmar los fragmentos realmente guardados:
 
-Subir dos veces un documento agrega nuevamente sus fragmentos. Para limpiar la base antes de otro experimento:
-
-```bash
-docker exec -it pruebachat_pgvector psql -U rag -d ragdb -c "TRUNCATE vector_store;"
+```powershell
+docker exec pruebachat_pgvector psql -U rag -d ragdb -c "SELECT metadata->>'fuente' AS fuente, COUNT(*) AS fragmentos FROM vector_store GROUP BY 1;"
 ```
 
-## API
+Al cambiar `chunkSize`, los fragmentos previos no se actualizan solos. Es necesario respaldar primero la base, eliminar solo los registros del PDF experimental, reiniciar el backend con los valores nuevos y reindexar una vez. No ejecutar `docker compose down -v` para estos experimentos.
 
-| Método | Ruta | Función |
-|---|---|---|
-| `POST` | `/api/v1/documents` | Indexa un archivo enviado como `multipart/form-data`, clave `file` |
-| `POST` | `/api/v1/chat/rag` | Responde recuperando hasta 4 fragmentos desde PGVector |
-| `POST` | `/api/v1/chat` | Responde sin consultar documentos |
-| `GET` | `/health/llm` | Comprueba Ollama y lista los modelos descargados |
+## 4. Paso 9 — Siete preguntas: sin RAG frente a con RAG
 
-Los dos endpoints de chat reciben:
+Resultados de las capturas y mediciones de una ejecución por pregunta. La columna «Con RAG» corresponde a la configuración de referencia **500 / 2 / 0.5**.
 
-```json
-{
-  "question": "¿Qué dice el documento?",
-  "sessionId": "grupo-1"
-}
-```
+| # | Pregunta | Respuesta esperada (página) | Sin RAG (observado) | Con RAG (observado) | ¿Correcta con RAG? |
+|---|---|---|---|---|---|
+| 1 | ¿Cuál es el horario de entrega y devolución de equipos de la Biblioteca Aurora? | L–V, 08:30–17:00; sin entregas/devoluciones fines de semana (p. 1). | Afirmó incorrectamente que no se ofrecen entregas/devoluciones. | Correcta: horario y fines de semana. | Sí |
+| 2 | ¿Cuál es el número máximo de equipos que puede tener prestados un usuario al mismo tiempo? | Máximo 2 equipos por usuario (p. 3). | Inventó máximo de 20 equipos. | Correcta: máximo 2. | Sí |
+| 3 | ¿Cuántas veces se puede renovar un préstamo ordinario y por cuántos días adicionales? | Una vez; 2 días calendario extra, sin reserva posterior y antes de vencimiento (p. 3). | Inventó 3 renovaciones de 7 días. | Correcta: una renovación por 2 días y condiciones. | Sí |
+| 4 | ¿Dónde y en qué plazo debe reportarse una falla detectada en un equipo prestado? | En el punto de atención, máximo 24 horas desde detección (p. 4). | Inventó pasos adicionales, aunque mencionó 24 horas. | Correcta: lugar y plazo de 24 horas. | Sí |
+| 5 | ¿Se puede retirar del edificio un equipo LAB-EXCLUSIVO si existe autorización de la coordinación académica? | No, ni siquiera con autorización académica (p. 5). | Sugirió que podría permitirse según autorización. | Incorrecta: dijo que no encontraba información. | No |
+| 6 | ¿Cuánto tiempo permanece activa una reserva ordinaria y qué ocurre si no se reclama el equipo? | 12 horas hábiles desde aviso; luego se libera automáticamente (p. 5). | No indicó el plazo; respuesta genérica. | Correcta: 12 horas hábiles y liberación. | Sí |
+| 7 | ¿Cómo se llama el director de la Biblioteca Aurora? | No figura en el documento. | Inventó el nombre «Elias Thorne». | Correcta: reconoció información ausente. | Sí |
 
-## Comprobar la indexación
+**Resultado:** con RAG, 6/7 respuestas correctas; sin RAG, 0/7 totalmente correctas bajo el criterio de fidelidad al manual (una respuesta contenía un dato parcialmente acertado, acompañado por contenido no sustentado). La pregunta 7 permite comprobar abstención ante datos ausentes.
 
-```bash
-docker exec -it pruebachat_pgvector psql -U rag -d ragdb -c "SELECT metadata->>'fuente' AS fuente, count(*) FROM vector_store GROUP BY 1;"
-```
+## 5. Reto 1 — Prompt español y abstención
 
-La configuración principal está en `backend/src/main/resources/application.properties`; los servicios están definidos en `docker/docker-compose.yml`.
+`SpringAiModelService.java` configura una plantilla `PromptTemplate` con `{query}` y `{question_answer_context}` y la asigna a `QuestionAnswerAdvisor.promptTemplate(...)`. Exige usar solo el contexto, respetar restricciones y, cuando falte soporte, escribir: **«No encuentro esa información en el documento cargado.»** En la prueba sobre el director (pregunta 7), el sistema con RAG se abstuvo correctamente; sin RAG inventó un nombre. Se observaron también fallos y respuestas contradictorias, por lo que esta protección no es infalible.
 
----
+## 6. Reto 2 — Tres configuraciones de recuperación
 
-## Informe del taller
+| Configuración | chunkSize | topK | Umbral | Fragmentos indexados | Correctas / 7 | Parciales | Promedio por pregunta (s) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Referencia | 500 | 2 | 0.5 | 3 | 6/7 | 0 | 72.305 |
+| A (pequeños) | 300 | 2 | 0.5 | 4 | 5/7 | 1 | 26.933 |
+| C (grandes) | 800 | 3 | 0.6 | 2 | 2/7 | 0 | 26.061 |
 
-> Esta sección está preparada para completar el entregable. Reemplace todos los campos marcados como **PENDIENTE** después de escoger el documento definitivo y ejecutar las pruebas.
+**Nota metodológica:** las 7 preguntas se repitieron una sola vez en cada configuración y se midió el tiempo total mostrado por la interfaz. La configuración A varió únicamente `chunkSize` respecto de la referencia; la C varió los tres parámetros a la vez. La mejora o deterioro de tiempos **no permite inferir causalidad** sobre un parámetro sin más ensayos controlados. Los recuentos (3, 4 y 2) se consultaron en PGVector; la atribución a cada tamaño de fragmento depende de la limpieza y reindexación realizadas.
 
-### Integrantes y documento seleccionado
+| Pregunta | Referencia: tiempo / evaluación | A: tiempo / evaluación | C: tiempo / evaluación |
+|---|---|---|---|
+| Horario | 84.138 s / Sí | 37.211 s / Sí | 56.981 s / Sí |
+| Límite de equipos | 61.597 s / Sí | 23.218 s / Sí | 12.011 s / No |
+| Renovación | 89.927 s / Sí | 24.607 s / Sí | 9.385 s / No |
+| Reporte de fallas | 62.772 s / Sí | 24.732 s / Sí | 9.172 s / No |
+| LAB-EXCLUSIVO | 68.124 s / No | 24.676 s / No | 40.388 s / No |
+| Reserva ordinaria | 70.513 s / Sí | 30.439 s / Parcial | 15.106 s / No |
+| Director (fuera del documento) | 69.061 s / Sí | 23.647 s / Sí | 39.384 s / Sí |
 
-- **Integrantes:** PENDIENTE.
-- **Documento:** PENDIENTE.
-- **Número de páginas:** PENDIENTE.
-- **Fuente o enlace:** PENDIENTE.
-- **Motivo de selección:** PENDIENTE. Explique por qué contiene información suficientemente específica como para comprobar que las respuestas provienen del RAG y no de la memoria general del modelo.
-- **Validación ética:** PENDIENTE. Confirme que no contiene datos personales, información confidencial ni material cuyo uso esté restringido.
+**Hallazgos:** la referencia obtuvo 6/7, A obtuvo 5/7 y C obtuvo 2/7. En A, la respuesta de reservas dio la duración correcta y la liberación automática, pero agregó contradictoriamente que esa información no estaba disponible (evaluación «Parcial»). La consulta LAB-EXCLUSIVO falló en las tres configuraciones. En C varias preguntas devolvieron 0 fragmentos recuperados aun estando el documento indexado; un umbral de 0.6 es una hipótesis plausible de filtrado, no una causa demostrada. Los tiempos bajos con 0 fuentes no implican mejor calidad.
 
-### Arquitectura explicada con nuestras palabras
+## 7. Reto 3 — Evidencias de fuente
 
-Cuando el usuario carga un archivo, el frontend lo envía al endpoint `/api/v1/documents`. Apache Tika extrae el texto y `TokenTextSplitter` lo divide en fragmentos de aproximadamente 500 tokens. `nomic-embed-text` convierte cada fragmento en un vector de 768 dimensiones. PGVector almacena el texto, su vector y el nombre del archivo como metadato.
+El backend accede a `QuestionAnswerAdvisor.RETRIEVED_DOCUMENTS` y construye información de fuentes con metadato `fuente` y extracto. En el frontend se muestra «Fuentes recuperadas (N fragmentos)» cuando existen. Esto representa **procedencia**, no una validación automática de veracidad. Se comprobó el comportamiento con capturas de preguntas con 2 fuentes y de preguntas sin fuentes.
 
-Cuando el usuario pregunta en **Chat con RAG**, el sistema convierte la pregunta en un vector con el mismo modelo de embeddings. PGVector busca los cuatro fragmentos más parecidos y descarta los que no superan el umbral de similitud de 0.5. `QuestionAnswerAdvisor` agrega los fragmentos recuperados al contexto y finalmente `gemma3:4b` redacta la respuesta. En **Chat sin RAG**, la pregunta se envía directamente a Gemma sin consultar documentos, lo que permite obtener la línea base para la comparación.
+## 8. Capturas y reproducibilidad
 
-### Preguntas de evaluación
+El documento Word complementario `Informe_evidencias_RAG.docx` contiene capturas disponibles de las pruebas A y C. El README presenta las tablas completas. Las capturas no se incorporan aquí de forma binaria al repositorio salvo que se añadan a `evidencias/capturas/`. **Las mediciones y respuestas de las pruebas se observaron en el equipo del grupo; este ZIP no representa una nueva ejecución del entorno Docker por parte del redactor del informe.**
 
-Use exactamente las mismas preguntas en **Chat sin RAG** y **Chat con RAG**. Las preguntas 1 a 6 deben poder responderse desde el documento. Si alguna no se ajusta al documento elegido, cambie únicamente el elemento entre corchetes por un concepto equivalente del documento.
+## 9. Limitaciones y mejoras
 
-| # | Pregunta | Respuesta esperada y página | Respuesta sin RAG | Respuesta con RAG | ¿Correcta? |
-|---:|---|---|---|---|---|
-| 1 | ¿Cuál es el propósito u objetivo principal del documento? | PENDIENTE (pág. __) | PENDIENTE | PENDIENTE | Sí / Parcial / No |
-| 2 | ¿Qué problema, necesidad o situación motivó la creación del documento? | PENDIENTE (pág. __) | PENDIENTE | PENDIENTE | Sí / Parcial / No |
-| 3 | ¿Qué personas, instituciones o actores tienen responsabilidades según el documento y cuáles son? | PENDIENTE (pág. __) | PENDIENTE | PENDIENTE | Sí / Parcial / No |
-| 4 | ¿Cuáles son las etapas, acciones o requisitos principales del proceso descrito? | PENDIENTE (pág. __) | PENDIENTE | PENDIENTE | Sí / Parcial / No |
-| 5 | ¿Qué fecha, cantidad, plazo o valor específico establece el documento para [el aspecto más importante]? | PENDIENTE (pág. __) | PENDIENTE | PENDIENTE | Sí / Parcial / No |
-| 6 | ¿Qué excepción, limitación, condición especial o caso no permitido menciona el documento? | PENDIENTE (pág. __) | PENDIENTE | PENDIENTE | Sí / Parcial / No |
-| 7 | ¿Cuál es la población actual de Mongolia y cómo cambió durante el último año? | No está en el documento | PENDIENTE | PENDIENTE | El resultado correcto del RAG es reconocer que no está en el documento |
+- El modelo local en CPU presentó tiempos considerables y variables; los promedios proceden de solo 7 ejecuciones por configuración.
+- LAB-EXCLUSIVO no se respondió correctamente pese a que la regla figura en el manual. Es necesario inspeccionar el texto completo de los fragmentos recuperados antes de culpar solo al umbral.
+- Un documento cargado por segunda vez se agrega de nuevo; falta una operación de reemplazo automático por nombre/ID de documento.
+- La configuración C cambió tres variables a la vez y no permite aislar su efecto individual.
+- **Mejora propuesta:** construir un pequeño conjunto de evaluación automatizado que registre ID de fragmentos, puntuación de similitud, cobertura de evidencia y exactitud de respuesta; repetir mediciones bajo condiciones estables y probar los parámetros uno por uno.
 
-Para que la evaluación sea verificable, copie las respuestas completas, anote la página que sustenta cada respuesta esperada y no cambie la redacción de las preguntas entre las dos vistas.
+## 10. Referencias
 
-### Evidencias que se deben agregar
+- Universidad El Bosque. *Taller: Chat con documentos usando RAG (Spring AI + PGVector)*, pp. 10–12 (Paso 9, Retos 1–3, entregables).
+- Spring AI Reference: https://docs.spring.io/spring-ai/reference/api/retrieval-augmented-generation.html
+- pgvector: https://github.com/pgvector/pgvector
 
-- [ ] Captura de la vista **Subir documentos** mostrando el archivo y el número de fragmentos indexados.
-- [ ] Captura de al menos una respuesta correcta en **Chat con RAG**.
-- [ ] Captura de la pregunta 7 mostrando que el sistema reconoce que la respuesta no está en el documento.
-- [ ] Tabla anterior completamente diligenciada.
-- [ ] Número de fragmentos almacenados, comprobado con la consulta SQL de la sección anterior.
-
-## Retos del taller
-
-### Reto 1: plantilla RAG en español y rechazo de respuestas sin soporte
-
-**Objetivo:** reemplazar la plantilla interna en inglés de `QuestionAnswerAdvisor` por una plantilla propia en español. No basta con el `system prompt`: la plantilla del advisor es la que inserta la pregunta y los fragmentos recuperados en cada consulta.
-
-La plantilla debe conservar los marcadores requeridos por Spring AI, ordenar que se use únicamente el contexto y definir una frase explícita para cuando la respuesta no esté sustentada. La prueba principal es la pregunta 7.
-
-**Estado:** pendiente. Actualmente existe un `system prompt` restrictivo, pero todavía no se configuró `promptTemplate(...)` en el advisor.
-
-### Reto 2: experimento de recuperación
-
-**Objetivo:** medir cómo cambian los resultados al modificar el tamaño de fragmento, `topK` y `similarityThreshold`. Cada configuración requiere limpiar `vector_store`, reiniciar o reconstruir el backend si cambió el código, volver a cargar el documento y repetir las mismas siete preguntas.
-
-Tabla para registrar el experimento:
-
-| Configuración | `chunkSize` | `topK` | `similarityThreshold` | Fragmentos indexados | Correctas de 7 | Tiempo promedio |
-|---|---:|---:|---:|---:|---:|---:|
-| A - Base | 500 | 4 | 0.50 | PENDIENTE | PENDIENTE | PENDIENTE |
-| B - Fragmentos pequeños | 250 | 6 | 0.55 | PENDIENTE | PENDIENTE | PENDIENTE |
-| C - Fragmentos grandes | 800 | 3 | 0.60 | PENDIENTE | PENDIENTE | PENDIENTE |
-
-**Conclusión del experimento:** PENDIENTE. Compare precisión, pérdida de contexto, ruido recuperado, cantidad de fragmentos y latencia. No afirme que una configuración es mejor sin relacionarlo con los resultados observados.
-
-### Reto 3: mostrar la evidencia
-
-**Objetivo:** hacer visible de dónde salió la respuesta. El backend debe recuperar `QuestionAnswerAdvisor.RETRIEVED_DOCUMENTS`, extender la respuesta del API con las fuentes y, opcionalmente, con un extracto de cada fragmento. El frontend debe mostrar esa evidencia debajo de la respuesta.
-
-**Estado:** pendiente. Los metadatos `fuente` ya se guardan durante la ingesta, pero el endpoint de chat todavía devuelve únicamente el texto, el tiempo y el estado.
-
-## Trabajo pendiente para terminar el taller
-
-- [x] Pasos 2–8: infraestructura, dependencias, configuración, ingesta, endpoint, RAG y frontend.
-- [ ] Paso 1: escoger y documentar el archivo definitivo y sus páginas.
-- [ ] Paso 9: ejecutar y completar las siete preguntas sin RAG y con RAG.
-- [ ] Resolver formalmente el Reto 1 con `promptTemplate(...)`.
-- [ ] Ejecutar las tres configuraciones del Reto 2 y escribir una conclusión sustentada.
-- [ ] Implementar el Reto 3 y mostrar las fuentes en la interfaz.
-- [ ] Tomar las capturas indicadas en la sección de evidencias.
-- [ ] Escribir limitaciones observadas y una mejora propuesta.
-- [ ] Revisar que no queden campos `PENDIENTE` antes de entregar.
-
-### Limitaciones observadas y mejora propuesta
-
-- **Limitación observada:** PENDIENTE. Ejemplos válidos: latencia alta en CPU, documentos escaneados sin OCR, duplicación al cargar dos veces el mismo archivo o recuperación insuficiente para preguntas que requieren varias secciones.
-- **Mejora propuesta:** PENDIENTE. Debe responder directamente a la limitación seleccionada y explicar cómo se implementaría.
+**Antes de entregar:** completar nombres del grupo; revisar la corrección del conteo final (3 fragmentos tras restauración, si se reindexó); comprobar que el archivo Word complementario y las capturas correspondan a las ejecuciones documentadas.

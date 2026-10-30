@@ -10,5 +10,5 @@ public interface ModelService {
     /**
      * Generate a response grounded in the documents stored in PGVector.
      */
-    String generateRagResponse(String question, String sessionId);
+    com.example.chat.dto.RagResult generateRagResponse(String question, String sessionId);
 }

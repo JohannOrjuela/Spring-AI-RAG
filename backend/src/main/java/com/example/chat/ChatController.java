@@ -2,6 +2,7 @@ package com.example.chat;
 
 import com.example.chat.dto.ChatRequest;
 import com.example.chat.dto.ChatResponse;
+import com.example.chat.dto.RagResult;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,13 +50,13 @@ public class ChatController {
         String mode = useRag ? "rag" : "sin-rag";
         log.info("Received chat request mode={} sessionId={} question={}", mode, req.getSessionId(), req.getQuestion());
         long start = Instant.now().toEpochMilli();
-        String answer = useRag
-                ? modelService.generateRagResponse(req.getQuestion(), req.getSessionId())
-                : modelService.generateResponse(req.getQuestion(), req.getSessionId());
+        RagResult ragResult = useRag ? modelService.generateRagResponse(req.getQuestion(), req.getSessionId()) : null;
+        String answer = useRag ? ragResult.answer() : modelService.generateResponse(req.getQuestion(), req.getSessionId());
         long elapsed = Instant.now().toEpochMilli() - start;
 
         String status = (answer == null || answer.isBlank()) ? "error" : "ok";
         ChatResponse resp = new ChatResponse(UUID.randomUUID().toString(), answer == null ? "" : answer, elapsed, status);
+        if (ragResult != null) resp.setSources(ragResult.sources());
 
         log.info("Chat response mode={} sessionId={} elapsedMs={} status={}",
                 mode, req.getSessionId(), elapsed, status);

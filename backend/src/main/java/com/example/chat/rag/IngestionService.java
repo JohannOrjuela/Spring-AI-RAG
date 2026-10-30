@@ -8,6 +8,7 @@ import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.HashMap;
 import java.util.List;
@@ -20,13 +21,14 @@ public class IngestionService {
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
 
     private final VectorStore vectorStore;
-    private final TokenTextSplitter splitter = TokenTextSplitter.builder()
-            .withChunkSize(500)
-            .withMinChunkSizeChars(200)
-            .build();
+    private final TokenTextSplitter splitter;
 
-    public IngestionService(VectorStore vectorStore) {
+    public IngestionService(VectorStore vectorStore, @Value("${rag.chunk-size:500}") int chunkSize) {
         this.vectorStore = vectorStore;
+        this.splitter = TokenTextSplitter.builder()
+                .withChunkSize(chunkSize)
+                .withMinChunkSizeChars(200)
+                .build();
     }
 
     public int ingest(Resource resource, String fileName) {

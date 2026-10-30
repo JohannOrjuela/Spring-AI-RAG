@@ -5,6 +5,7 @@ public class ChatResponse {
     private String answer;
     private long elapsedMs;
     private String status;
+    private java.util.List<SourceEvidence> sources = java.util.List.of();
 
     public ChatResponse() {}
 
@@ -15,6 +16,8 @@ public class ChatResponse {
         this.status = status;
     }
 
+    public java.util.List<SourceEvidence> getSources() { return sources; }
+    public void setSources(java.util.List<SourceEvidence> sources) { this.sources = sources; }
     public String getRequestId() { return requestId; }
     public void setRequestId(String requestId) { this.requestId = requestId; }
     public String getAnswer() { return answer; }

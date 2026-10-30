@@ -1,7 +1,9 @@
+
 services:
-  # La imagen oficial ya trae ENTRYPOINT ["/bin/ollama"] y CMD ["serve"].
-  # No hay que sobreescribir el entrypoint: hacerlo era lo que impedia
-  # que el modelo se descargara.
+
+  # =========================================================
+  # OLLAMA - Servidor de modelos de inteligencia artificial
+  # =========================================================
   ollama:
     image: "ollama/ollama:latest"
     container_name: pruebachat_ollama
@@ -11,17 +13,15 @@ services:
       - ollama_data:/root/.ollama
     restart: unless-stopped
     healthcheck:
-      # Ollama no expone /health. "ollama list" contra el socket local es la
-      # comprobacion real de que el servidor acepta peticiones.
       test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
 
-  # Servicio efimero: descarga el modelo conversacional una sola vez y termina.
-  # Saca la descarga del arranque de Spring, que es lo que dejaba el
-  # puerto 8080 publicado pero sin nadie escuchando (ERR_CONNECTION_RESET).
+  # =========================================================
+  # DESCARGA DEL MODELO DE CHAT - GEMMA 3 4B
+  # =========================================================
   ollama-pull:
     image: "ollama/ollama:latest"
     container_name: pruebachat_ollama_pull
@@ -33,8 +33,9 @@ services:
       ollama:
         condition: service_healthy
 
-  # Modelo especializado en embeddings. El modelo de chat genera texto;
-  # este transforma preguntas y fragmentos en vectores de 768 dimensiones.
+  # =========================================================
+  # MODELO DE EMBEDDINGS - NOMIC EMBED TEXT
+  # =========================================================
   ollama-pull-embed:
     image: "ollama/ollama:latest"
     container_name: pruebachat_ollama_pull_embed
@@ -46,6 +47,9 @@ services:
       ollama:
         condition: service_healthy
 
+  # =========================================================
+  # POSTGRESQL + PGVECTOR
+  # =========================================================
   pgvector:
     image: "pgvector/pgvector:pg17"
     container_name: pruebachat_pgvector
@@ -63,6 +67,9 @@ services:
       timeout: 5s
       retries: 12
 
+  # =========================================================
+  # BACKEND SPRING BOOT + SPRING AI + RAG
+  # =========================================================
   backend:
     build: ../backend
     container_name: pruebachat_backend
@@ -71,6 +78,19 @@ services:
     environment:
       - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
       - SPRING_DATASOURCE_URL=jdbc:postgresql://pgvector:5432/ragdb
+
+      # =====================================================
+      # CONFIGURACION FINAL - MEJOR RESULTADO OBSERVADO
+      # chunkSize = 500 tokens
+      # topK = 2 fragmentos recuperados como maximo
+      # similarityThreshold = 0.5
+      #
+      # Resultado de las pruebas: 6/7 respuestas correctas
+      # =====================================================
+      - RAG_CHUNK_SIZE=${RAG_CHUNK_SIZE:-500}
+      - RAG_TOP_K=${RAG_TOP_K:-2}
+      - RAG_SIMILARITY_THRESHOLD=${RAG_SIMILARITY_THRESHOLD:-0.5}
+
     depends_on:
       ollama:
         condition: service_healthy
@@ -81,6 +101,9 @@ services:
       pgvector:
         condition: service_healthy
 
+  # =========================================================
+  # FRONTEND - INTERFAZ WEB
+  # =========================================================
   frontend:
     build: ../frontend
     container_name: pruebachat_frontend
@@ -89,8 +112,13 @@ services:
     depends_on:
       - backend
 
+# ===========================================================
+# VOLUMENES PERSISTENTES
+# Conservan modelos Ollama y datos PGVector entre reinicios.
+# ===========================================================
 volumes:
   ollama_data:
     driver: local
+
   pgvector_data:
     driver: local

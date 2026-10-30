@@ -5,7 +5,11 @@
 
 ## 1. Integrantes y documento seleccionado
 
-**Integrantes:** [COMPLETAR CON LOS NOMBRES REALES DEL GRUPO].
+**Integrantes:**
+
+- Daniel Felipe Agudelo Pérez
+- Daniel Villamil
+- Johan Sebastián Orjuela Heredia
 
 **Fuente:** documento original ficticio de demostración, incluido en `documentos/Manual_demostrativo_Biblioteca_Aurora.pdf`; no corresponde a una biblioteca real. Tiene 6 páginas con texto seleccionable. Se eligió por sus normas concretas y poco conocidas por un LLM (horarios, límites, renovaciones, fallas, excepciones y reservas); así se puede evaluar si la respuesta proviene del contexto recuperado.
 

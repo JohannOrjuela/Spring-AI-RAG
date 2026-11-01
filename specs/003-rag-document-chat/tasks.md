@@ -53,18 +53,6 @@
 - [x] T032 Verificar chat general por ruta independiente.
 - [x] T033 Eliminar fragmentos y archivos temporales del smoke test.
 
-## Phase 7 - Workshop Completion
-
-- [ ] T034 Escoger y documentar el archivo definitivo.
-- [ ] T035 Ejecutar las siete preguntas en ambos modos.
-- [ ] T036 Añadir capturas y completar tabla de resultados.
-- [ ] T037 Implementar `promptTemplate(...)` propio en español.
-- [ ] T038 Ejecutar las tres configuraciones del experimento.
-- [ ] T039 Calcular precisión sobre 7 y latencia promedio.
-- [ ] T040 Exponer documentos recuperados en la respuesta del API.
-- [ ] T041 Mostrar fuentes y extractos en el frontend.
-- [ ] T042 Redactar conclusión, limitación y mejora propuesta.
-- [ ] T043 Eliminar todos los campos `PENDIENTE` del README.
 
 ## Dependencies
 

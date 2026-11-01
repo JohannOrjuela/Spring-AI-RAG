@@ -1,51 +1,47 @@
-# PruebaChat — Taller de chat con documentos usando RAG
+# Taller: Chat con documentos usando RAG (Spring AI + PGVector) 
 
-> **Entrega — Universidad El Bosque · Aplicaciones basadas en grandes modelos de lenguaje**  
-> Documento de referencia: *Manual demostrativo de préstamo de equipos – Biblioteca Aurora* (6 páginas, ficticio).
+ **Universidad El Bosque · Aplicaciones basadas en grandes modelos de lenguaje**  
+ Documento de referencia: *Manual demostrativo de préstamo de equipos – Biblioteca Aurora* (6 páginas).
 
 ## 1. Integrantes y documento seleccionado
 
 **Integrantes:**
 
 - Daniel Felipe Agudelo Pérez
-- Daniel Villamil
+- José Daniel Villamil Duran
 - Johan Sebastián Orjuela Heredia
 
-**Fuente:** documento original ficticio de demostración, incluido en `documentos/Manual_demostrativo_Biblioteca_Aurora.pdf`; no corresponde a una biblioteca real. Tiene 6 páginas con texto seleccionable. Se eligió por sus normas concretas y poco conocidas por un LLM (horarios, límites, renovaciones, fallas, excepciones y reservas); así se puede evaluar si la respuesta proviene del contexto recuperado.
+**Documento RAG:** documento de la biblioteca Aurora que posee los horarios y reglas del préstamo de equipos, incluido en anexos/Manual_demostrativo_Biblioteca_Aurora.pdf. Tiene 6 páginas. Se eligió porque contiene normas concretas (horarios, límites, renovaciones, fallas, excepciones y reservas).
+
+**Fuente:**
 
 ## 2. Arquitectura y flujo
+<img width="656" height="156" alt="image" src="https://github.com/user-attachments/assets/d696612a-127b-45be-b659-723fd1c67b01">
+  
 
-**Ingesta:** el formulario de `frontend/src/index.html` envía el archivo a `POST /api/v1/documents`. `TikaDocumentReader` extrae el contenido. `TokenTextSplitter` lo divide mediante `withChunkSize`, se registra `fuente` en los metadatos, `nomic-embed-text` produce embeddings de 768 dimensiones y `VectorStore` los guarda en PostgreSQL 17 con PGVector.
+Cuando el usuario carga un documento, el frontend lo envía al backend mediante **POST /api/v1/documents.** El backend valida el archivo y Apache Tika extrae su contenido. Después, **TokenTextSplitter** divide el texto en fragmentos y agrega a cada uno el nombre del archivo como metadato. Luego **nomic-embed-text** transforma los fragmentos en vectores, que se almacenan junto con el texto y sus metadatos en PostgreSQL con PGVector.
 
-**Consulta con RAG:** `POST /api/v1/chat/rag` usa `QuestionAnswerAdvisor`, que busca fragmentos por similitud con `topK` y `similarityThreshold`. Se agregan al prompt español, y `gemma3:4b` genera la respuesta. La implementación obtiene `RETRIEVED_DOCUMENTS` para exponer fuente y extracto en la interfaz. **Sin RAG:** `POST /api/v1/chat` consulta al modelo sin recuperar el PDF.
 
-**Diferencia con el modelo sugerido en la guía:** se usa `gemma3:4b`, no `llama3`. No se realizó una comparación de modelos.
+Cuando el usuario hace una pregunta en el chat con RAG, esta se envía a **POST /api/v1/chat/rag.** Spring AI convierte la consulta en un vector y **QuestionAnswerAdvisor** busca en PGVector los fragmentos más similares, aplicando **topK** y **similarityThreshold.**
+ La pregunta y los fragmentos recuperados se incorporan a una plantilla en español que ordena responder únicamente con el contenido del documento. Luego, gemma3:4b genera la respuesta. Finalmente, el backend devuelve tanto la respuesta como el nombre y un extracto de las fuentes recuperadas, que se muestran en la interfaz. En el chat sin RAG, la pregunta se envía directamente al modelo sin consultar PGVector.
+
+ 
+<img width="3618" height="482" alt="mermaid-diagram" src="https://github.com/user-attachments/assets/7c6c6f50-78a1-4e44-8803-1bfb1da330f3" />
 
 ## 3. Ejecución
 
-Con Docker Desktop en ejecución, abrir PowerShell desde `Spring-AI-RAG-main`:
+Con Docker o Docker Desktop en ejecución, abrir PowerShell en la carpeta raíz del proyecto y ejecutar el siguiente comando:
 
-```powershell
 docker compose -f docker/docker-compose.yml up -d --build
-docker compose -f docker/docker-compose.yml ps
-docker exec pruebachat_backend printenv RAG_CHUNK_SIZE RAG_TOP_K RAG_SIMILARITY_THRESHOLD
-```
 
-Abrir `http://localhost:4200`, subir una única vez el PDF de `documentos/`, y probar en «Chat con RAG» y «Chat sin RAG». API en puerto `8080`; Ollama en `11434`; PostgreSQL en `5432`.
+Cuando los servicios ya estén disponibles, el front end se encuentra desde: http://localhost:4200. En el navegador. Desde está interfaz, se puede cargar el archivo utilizado (manual) o otros para realizar el procedimiento de embeding de los archivos PDF, para esté caso. El manual se encuentra disponible en la carpeta anexos/.
 
-**Configuración final seleccionada:** `RAG_CHUNK_SIZE=500`, `RAG_TOP_K=2`, `RAG_SIMILARITY_THRESHOLD=0.5` (valores confirmados en terminal). Para confirmar los fragmentos realmente guardados:
 
-```powershell
-docker exec pruebachat_pgvector psql -U rag -d ragdb -c "SELECT metadata->>'fuente' AS fuente, COUNT(*) AS fragmentos FROM vector_store GROUP BY 1;"
-```
+## 4. Paso 9. Prueba con un conjunto de preguntas
 
-Al cambiar `chunkSize`, los fragmentos previos no se actualizan solos. Es necesario respaldar primero la base, eliminar solo los registros del PDF experimental, reiniciar el backend con los valores nuevos y reindexar una vez. No ejecutar `docker compose down -v` para estos experimentos.
+Resultados de las capturas y mediciones de una ejecución por pregunta.
 
-## 4. Paso 9 — Siete preguntas: sin RAG frente a con RAG
-
-Resultados de las capturas y mediciones de una ejecución por pregunta. La columna «Con RAG» corresponde a la configuración de referencia **500 / 2 / 0.5**.
-
-| # | Pregunta | Respuesta esperada (página) | Sin RAG (observado) | Con RAG (observado) | ¿Correcta con RAG? |
+| # | Pregunta | Respuesta esperada (página) | Sin RAG | Con RAG | ¿Correcta con RAG? |
 |---|---|---|---|---|---|
 | 1 | ¿Cuál es el horario de entrega y devolución de equipos de la Biblioteca Aurora? | L–V, 08:30–17:00; sin entregas/devoluciones fines de semana (p. 1). | Afirmó incorrectamente que no se ofrecen entregas/devoluciones. | Correcta: horario y fines de semana. | Sí |
 | 2 | ¿Cuál es el número máximo de equipos que puede tener prestados un usuario al mismo tiempo? | Máximo 2 equipos por usuario (p. 3). | Inventó máximo de 20 equipos. | Correcta: máximo 2. | Sí |
@@ -56,6 +52,8 @@ Resultados de las capturas y mediciones de una ejecución por pregunta. La colum
 | 7 | ¿Cómo se llama el director de la Biblioteca Aurora? | No figura en el documento. | Inventó el nombre «Elias Thorne». | Correcta: reconoció información ausente. | Sí |
 
 **Resultado:** con RAG, 6/7 respuestas correctas; sin RAG, 0/7 totalmente correctas bajo el criterio de fidelidad al manual (una respuesta contenía un dato parcialmente acertado, acompañado por contenido no sustentado). La pregunta 7 permite comprobar abstención ante datos ausentes.
+
+**NOTA:** LAS EVIDENCIAS GRAFICAS SE ENCUENTRAN EN: anexos/Evidencias.pdf
 
 ## 5. Reto 1 — Prompt español y abstención
 

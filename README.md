@@ -16,7 +16,9 @@
 **Fuente:**
 
 ## 2. Arquitectura y flujo
-<img width="656" height="156" alt="image" src="https://github.com/user-attachments/assets/d696612a-127b-45be-b659-723fd1c67b01">
+Proceso de RAG
+
+![Proceso de indexación y consulta RAG](imagenes/proceso-rag.png)
   
 
 Cuando el usuario carga un documento, el frontend lo envía al backend mediante **POST /api/v1/documents.** El backend valida el archivo y Apache Tika extrae su contenido. Después, **TokenTextSplitter** divide el texto en fragmentos y agrega a cada uno el nombre del archivo como metadato. Luego **nomic-embed-text** transforma los fragmentos en vectores, que se almacenan junto con el texto y sus metadatos en PostgreSQL con PGVector.
@@ -25,9 +27,8 @@ Cuando el usuario carga un documento, el frontend lo envía al backend mediante 
 Cuando el usuario hace una pregunta en el chat con RAG, esta se envía a **POST /api/v1/chat/rag.** Spring AI convierte la consulta en un vector y **QuestionAnswerAdvisor** busca en PGVector los fragmentos más similares, aplicando **topK** y **similarityThreshold.**
  La pregunta y los fragmentos recuperados se incorporan a una plantilla en español que ordena responder únicamente con el contenido del documento. Luego, gemma3:4b genera la respuesta. Finalmente, el backend devuelve tanto la respuesta como el nombre y un extracto de las fuentes recuperadas, que se muestran en la interfaz. En el chat sin RAG, la pregunta se envía directamente al modelo sin consultar PGVector.
 
- 
-<img width="3618" height="482" alt="mermaid-diagram" src="https://github.com/user-attachments/assets/7c6c6f50-78a1-4e44-8803-1bfb1da330f3" />
-
+ Diagrama de flujo
+![Diagrama de arquitectura del sistema](imagenes/diagrama-arquitectura.png)
 ## 3. Ejecución
 
 Con Docker o Docker Desktop en ejecución, abrir PowerShell en la carpeta raíz del proyecto y ejecutar el siguiente comando:
@@ -53,11 +54,26 @@ Resultados de las capturas y mediciones de una ejecución por pregunta.
 
 **Resultado:** con RAG, 6/7 respuestas correctas; sin RAG, 0/7 totalmente correctas bajo el criterio de fidelidad al manual (una respuesta contenía un dato parcialmente acertado, acompañado por contenido no sustentado). La pregunta 7 permite comprobar abstención ante datos ausentes.
 
-**NOTA:** LAS EVIDENCIAS GRAFICAS SE ENCUENTRAN EN: anexos/Evidencias.pdf
+Indexación del documento.
+La siguiente captura confirma que el documento fue procesado y dividido en tres fragmentos:
+
+![Indexación del documento en PGVector](imagenes/indexacion-documento.png)
+
+**NOTA:** LAS DEMAS EVIDENCIAS GRAFICAS SE ENCUENTRAN EN: anexos/Evidencias.pdf
 
 ## 5. Reto 1 — Prompt español y abstención
 
-`SpringAiModelService.java` configura una plantilla `PromptTemplate` con `{query}` y `{question_answer_context}` y la asigna a `QuestionAnswerAdvisor.promptTemplate(...)`. Exige usar solo el contexto, respetar restricciones y, cuando falte soporte, escribir: **«No encuentro esa información en el documento cargado.»** En la prueba sobre el director (pregunta 7), el sistema con RAG se abstuvo correctamente; sin RAG inventó un nombre. Se observaron también fallos y respuestas contradictorias, por lo que esta protección no es infalible.
+**SpringAiModelService.java** es el encargado de configurar una plantilla **PromptTemplate** con `{query}` y `{question_answer_context}` y la asigna a **QuestionAnswerAdvisor.promptTemplate(...)**. En el especificamos que: Exige usar solo el contexto, respetar restricciones y, cuando falte soporte, escribir: **«No encuentro esa información en el documento cargado.»** En la prueba sobre el director (pregunta 7), el sistema con RAG se abstuvo correctamente; sin RAG inventó un nombre.
+
+### Plantilla personalizada en español
+
+![Plantilla PromptTemplate en español](imagenes/prompt-espanol.png)
+
+### Resultado del chat con RAG
+
+La interfaz también muestra los fragmentos utilizados como fuentes de la respuesta:
+
+![Respuesta del chat con RAG y fuentes recuperadas](imagenes/respuesta-rag-fuentes.png)
 
 ## 6. Reto 2 — Tres configuraciones de recuperación
 
@@ -67,7 +83,7 @@ Resultados de las capturas y mediciones de una ejecución por pregunta.
 | A (pequeños) | 300 | 2 | 0.5 | 4 | 5/7 | 1 | 26.933 |
 | C (grandes) | 800 | 3 | 0.6 | 2 | 2/7 | 0 | 26.061 |
 
-**Nota metodológica:** las 7 preguntas se repitieron una sola vez en cada configuración y se midió el tiempo total mostrado por la interfaz. La configuración A varió únicamente `chunkSize` respecto de la referencia; la C varió los tres parámetros a la vez. La mejora o deterioro de tiempos **no permite inferir causalidad** sobre un parámetro sin más ensayos controlados. Los recuentos (3, 4 y 2) se consultaron en PGVector; la atribución a cada tamaño de fragmento depende de la limpieza y reindexación realizadas.
+**Nota:** las 7 preguntas se repitieron una sola vez en cada configuración y se midió el tiempo total mostrado por la interfaz. La configuración A varió únicamente `chunkSize` respecto de la referencia; la C varió los tres parámetros a la vez.
 
 | Pregunta | Referencia: tiempo / evaluación | A: tiempo / evaluación | C: tiempo / evaluación |
 |---|---|---|---|
@@ -79,15 +95,17 @@ Resultados de las capturas y mediciones de una ejecución por pregunta.
 | Reserva ordinaria | 70.513 s / Sí | 30.439 s / Parcial | 15.106 s / No |
 | Director (fuera del documento) | 69.061 s / Sí | 23.647 s / Sí | 39.384 s / Sí |
 
-**Hallazgos:** la referencia obtuvo 6/7, A obtuvo 5/7 y C obtuvo 2/7. En A, la respuesta de reservas dio la duración correcta y la liberación automática, pero agregó contradictoriamente que esa información no estaba disponible (evaluación «Parcial»). La consulta LAB-EXCLUSIVO falló en las tres configuraciones. En C varias preguntas devolvieron 0 fragmentos recuperados aun estando el documento indexado; un umbral de 0.6 es una hipótesis plausible de filtrado, no una causa demostrada. Los tiempos bajos con 0 fuentes no implican mejor calidad.
+**Hallazgos:** la referencia obtuvo 6/7, A obtuvo 5/7 y C obtuvo 2/7. En A, la respuesta de reservas dio la duración correcta y la liberación automática, pero agregó contradictoriamente que esa información no estaba disponible (evaluación «Parcial»). La consulta LAB-EXCLUSIVO falló en las tres configuraciones. En C varias preguntas devolvieron 0 fragmentos recuperados aun estando el documento indexado; un umbral de 0.6 es una hipótesis plausible de filtrado, no una causa demostrada.
+
+**NOTA:** LAS DEMAS EVIDENCIAS GRAFICAS SE ENCUENTRAN EN: anexos/Evidencias.pdf
 
 ## 7. Reto 3 — Evidencias de fuente
 
 El backend accede a `QuestionAnswerAdvisor.RETRIEVED_DOCUMENTS` y construye información de fuentes con metadato `fuente` y extracto. En el frontend se muestra «Fuentes recuperadas (N fragmentos)» cuando existen. Esto representa **procedencia**, no una validación automática de veracidad. Se comprobó el comportamiento con capturas de preguntas con 2 fuentes y de preguntas sin fuentes.
 
-## 8. Capturas y reproducibilidad
+## 8. Evidencias Graficas
 
-El documento Word complementario `Informe_evidencias_RAG.docx` contiene capturas disponibles de las pruebas A y C. El README presenta las tablas completas. Las capturas no se incorporan aquí de forma binaria al repositorio salvo que se añadan a `evidencias/capturas/`. **Las mediciones y respuestas de las pruebas se observaron en el equipo del grupo; este ZIP no representa una nueva ejecución del entorno Docker por parte del redactor del informe.**
+El documento pdf complementario se encuentra `anexos/Evidencias.pdf` contiene capturas disponibles de las pruebas A y C.
 
 ## 9. Limitaciones y mejoras
 
@@ -97,10 +115,16 @@ El documento Word complementario `Informe_evidencias_RAG.docx` contiene capturas
 - La configuración C cambió tres variables a la vez y no permite aislar su efecto individual.
 - **Mejora propuesta:** construir un pequeño conjunto de evaluación automatizado que registre ID de fragmentos, puntuación de similitud, cobertura de evidencia y exactitud de respuesta; repetir mediciones bajo condiciones estables y probar los parámetros uno por uno.
 
-## 10. Referencias
+## 10. Conclusiones
+
+Este taller nos permitió entender mejor cómo funciona un sistema RAG y cómo puede mejorar las respuestas de una inteligencia artificial al utilizar información de un documento. En nuestras pruebas, el chat con RAG fue mucho más preciso que el chat sin RAG, que en varias ocasiones inventó información o dio respuestas incorrectas.
+También comprobamos que **la configuración de los parámetros influye bastante en los resultados**. De las tres configuraciones que probamos, la que utilizaba `chunkSize=500`, `topK=2` y `similarityThreshold=0.5` fue la mejor, con 6 de 7 respuestas correctas.
+Sin embargo, también encontramos algunas limitaciones. En ciertos casos, el sistema no recuperó información que sí estaba en el documento y, en otros, generó respuestas incompletas o contradictorias.
+En general, el taller nos mostró que **RAG puede hacer que un modelo sea más confiable, pero no garantiza respuestas perfectas**. Por eso, es importante probar diferentes configuraciones, revisar los errores y no evaluar el sistema únicamente por su velocidad.
+
+
+## 11. Referencias
 
 - Universidad El Bosque. *Taller: Chat con documentos usando RAG (Spring AI + PGVector)*, pp. 10–12 (Paso 9, Retos 1–3, entregables).
 - Spring AI Reference: https://docs.spring.io/spring-ai/reference/api/retrieval-augmented-generation.html
 - pgvector: https://github.com/pgvector/pgvector
-
-**Antes de entregar:** completar nombres del grupo; revisar la corrección del conteo final (3 fragmentos tras restauración, si se reindexó); comprobar que el archivo Word complementario y las capturas correspondan a las ejecuciones documentadas.

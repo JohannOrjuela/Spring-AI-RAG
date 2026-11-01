@@ -13,7 +13,7 @@
 
 **Documento RAG:** documento de la biblioteca Aurora que posee los horarios y reglas del préstamo de equipos, incluido en anexos/Manual_demostrativo_Biblioteca_Aurora.pdf. Tiene 6 páginas. Se eligió porque contiene normas concretas (horarios, límites, renovaciones, fallas, excepciones y reservas).
 
-**Fuente:**
+**Fuente:** documento ficticio elaborado con fines académicos para este taller.  Se encuentra en: `anexos/Manual_demostrativo_Biblioteca_Aurora.pdf`.
 
 ## 2. Arquitectura y flujo
 Proceso de RAG
@@ -35,7 +35,7 @@ Con Docker o Docker Desktop en ejecución, abrir PowerShell en la carpeta raíz 
 
 docker compose -f docker/docker-compose.yml up -d --build
 
-Cuando los servicios ya estén disponibles, el front end se encuentra desde: http://localhost:4200. En el navegador. Desde está interfaz, se puede cargar el archivo utilizado (manual) o otros para realizar el procedimiento de embeding de los archivos PDF, para esté caso. El manual se encuentra disponible en la carpeta anexos/.
+Cuando los servicios ya estén disponibles, el front end se encuentra desde: http://localhost:4200. En el navegador. Desde está interfaz, se puede cargar el archivo utilizado (manual) o otros para realizar el procedimiento de embedding de los archivos PDF, para esté caso. El manual se encuentra disponible en la carpeta anexos/.
 
 
 ## 4. Paso 9. Prueba con un conjunto de preguntas
